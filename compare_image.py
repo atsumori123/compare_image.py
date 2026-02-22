@@ -4,7 +4,7 @@ import numpy as np
 import argparse
 #import numpy as np
 
-def compare_images(src, dst, region=None, output_dir="diff_output"):
+def compare_images(src, dst, region1=None, region2=None, output_dir="diff_output"):
 	# src: 比較元ディレクトリ
 	# dst: 比較先ディレクトリ
 	# region: (x1, y1, x2, y2) のタプル。None の場合は全体比較
@@ -35,20 +35,40 @@ def compare_images(src, dst, region=None, output_dir="diff_output"):
 			cv2.imwrite(os.path.join(output_dir, f"diff_{filename}"), diff_img)
 			continue
 		"""
-
+		# ----------------------
+		# 画像1
+		# ----------------------
 		# 比較領域の決定（指定がなければ全体）
-		if region is None:
+		if region1 is None:
 			x1, y1, x2, y2 = 0, 0, img1.shape[1], img1.shape[0]
 		else:
-			x1, y1, x2, y2 = map(int, region.split(","))
+			x1, y1, x2, y2 = map(int, region1.split(","))
 
 		# ROI(Region of Interest) 画像処理の対象となる領域を抽出
 		roi1 = img1[y1:y2, x1:x2]
+
+		# ----------------------
+		# 画像2
+		# ----------------------
+		# 余白部分をトリミング
+		roi1_trim, margin_x, margin_y = trim_white_border(roi1)
+
+		# 比較領域の決定（指定がなければ全体）
+		if region2 is None:
+			x1, y1, x2, y2 = 0, 0, img2.shape[1], img2.shape[0]
+		else:
+			x1, y1, x2, y2 = map(int, region2.split(","))
+
+
+		# ROI(Region of Interest) 画像処理の対象となる領域を抽出
 		roi2 = img2[y1:y2, x1:x2]
 
 		# 余白部分をトリミング
-		roi1_trim, margin_x, margin_y = trim_white_border(roi1)
+		# 戻り値のmargin_xとmargin_yは画像2の余白量。この値に画像2の比較開始座標を足しこむ・
+		# その値はdiff画像作成時に使用する
 		roi2_trim, margin_x, margin_y = trim_white_border(roi2)
+		margin_x += x1
+		margin_y += y1
 
 		# 余白部分をトリミングすると、比較元と比較先の画像サイズが異なってしまう
 		# そうすると、cv2.absdiff()でサイズエラーになる。
@@ -63,7 +83,7 @@ def compare_images(src, dst, region=None, output_dir="diff_output"):
 		roi2_trim = roi2_trim[:h, :w]
 		
 		# 比較のアリゴリズムの指定
-		SlidingWindow = True
+		SlidingWindow = False
 		if SlidingWindow:
 			# スライディングウィンドウで走査
 			# 20x20 の範囲に差分が5個以上ある領域を検出 (★調整)
@@ -195,8 +215,9 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("img1", help="compare image 1")
 	parser.add_argument("img2", help="compare image 2")
-	parser.add_argument("-r", help="compare area. ex) x1,y1,x2,y2")
+	parser.add_argument("-r1", help="image 1 region of interest. ex) x1,y1,x2,y2")
+	parser.add_argument("-r2", help="image 2 region of interest. ex) x1,y1,x2,y2")
 	args = parser.parse_args()
 
-	compare_images(args.img1, args.img2, args.r)
+	compare_images(args.img1, args.img2, args.r1, args.r2)
 
