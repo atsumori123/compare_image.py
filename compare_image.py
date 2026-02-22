@@ -27,39 +27,57 @@ def compare_images(src, dst, region=None, output_dir="diff_output"):
 			print(f"[ERR ] {filename} の読み込みに失敗しました")
 			continue
 
+		"""
 		# サイズが違う場合は比較不可
 		if img1.shape != img2.shape:
 			print(f"[DIFF] {filename} は画像サイズが異なります")
 			diff_img = draw_full_bbox(img1)
 			cv2.imwrite(os.path.join(output_dir, f"diff_{filename}"), diff_img)
 			continue
+		"""
 
-		# ★ 比較領域の決定（指定がなければ全体）
+		# 比較領域の決定（指定がなければ全体）
 		if region is None:
 			x1, y1, x2, y2 = 0, 0, img1.shape[1], img1.shape[0]
 		else:
 			x1, y1, x2, y2 = map(int, region.split(","))
 
-		# ROI 抽出
+		# ROI(Region of Interest) 画像処理の対象となる領域を抽出
 		roi1 = img1[y1:y2, x1:x2]
 		roi2 = img2[y1:y2, x1:x2]
 
+		# 余白部分をトリミング
+		roi1_trim, margin_x, margin_y = trim_white_border(roi1)
+		roi2_trim, margin_x, margin_y = trim_white_border(roi2)
+
+		# 余白部分をトリミングすると、比較元と比較先の画像サイズが異なってしまう
+		# そうすると、cv2.absdiff()でサイズエラーになる。
+		# エラーを回避するため、画像サイズが小さい方に合わせて切り詰める
+		h1, w1 = roi1_trim.shape[:2]
+		h2, w2 = roi2_trim.shape[:2]
+
+		h = min(h1, h2)
+		w = min(w1, w2)
+
+		roi1_trim = roi1_trim[:h, :w]
+		roi2_trim = roi2_trim[:h, :w]
+		
 		# 比較のアリゴリズムの指定
 		SlidingWindow = True
 		if SlidingWindow:
 			# スライディングウィンドウで走査
-			# 50x50 の範囲に差分が20個以上ある領域を検出
-			boxes = detect_clustered_diff(roi1, roi2, (20, 20), 5)
+			# 20x20 の範囲に差分が5個以上ある領域を検出 (★調整)
+			boxes = detect_clustered_diff(roi1_trim, roi2_trim, (20, 20), 5)
 		else:
 			# ピクセル単位で比較
-			boxes = pixel_diff(roi1, roi2, x1, y1)
+			boxes = pixel_diff(roi1_trim, roi2_trim, x1, y1)
 
 		if len(boxes) == 0:
 			# 差分なし。
 			print(f"[ OK ] {filename}")
 		else:
 			# 差分あり。赤枠を描画
-			result = draw_diff_boxes(img2, boxes)
+			result = draw_diff_boxes(img2, boxes, [margin_x, margin_y])
 
 			out_path = os.path.join(output_dir, f"diff_{filename}")
 			cv2.imwrite(out_path, result)
@@ -128,6 +146,28 @@ def pixel_diff(roi1, roi2, x1, y1):
 			diff_boxes.append([(x1 + cx), (y1 + cy), cw, ch])
 
 	return diff_boxes
+
+# ---------------------------------------------------------
+# 白余白を自動トリミング
+# ---------------------------------------------------------
+def trim_white_border(img, threshold=250):
+	# 白余白を自動でトリミングする
+	# threshold: 白とみなす明るさの閾値
+	gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+	# 白以外のピクセルを抽出
+	mask = gray < threshold
+	coords = np.column_stack(np.where(mask))
+
+	if coords.size == 0:
+		# 全部白ならそのまま返す
+		return img
+
+	y_min, x_min = coords.min(axis=0)
+	y_max, x_max = coords.max(axis=0)
+
+	trimmed = img[y_min:y_max+1, x_min:x_max+1]
+	return trimmed, x_min, y_min
 
 
 def draw_diff_boxes(base_img, boxes, offset=(0, 0)):
